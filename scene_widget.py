@@ -318,23 +318,33 @@ def create_scene2():
 def main():
     np.random.seed(0)
 
-    window = pyglet.window.Window(width=1280, height=480)
+    window = pyglet.window.Window(width=1295, height=975)
     gui = glooey.Gui(window)
 
-    hbox = glooey.HBox()
+    grid = glooey.Grid(2, 2)
+    grid.set_padding(5)
 
     scene = create_scene1()
     widget = SceneWidget(scene)
-    hbox.add(widget)
-
-    widget = glooey.Placeholder(min_width=5, min_height=480, color=(0, 0, 0))
-    hbox.add(widget, size=0)
-
+    grid[0, 0] = widget
     scene = create_scene2()
     widget = SceneWidget(scene)
-    hbox.add(widget)
+    grid[0, 1] = widget
 
-    gui.add(hbox)
+    image = pyglet.image.load('images/beach.jpg')
+    widget = glooey.Image(image)
+    grid[1, 0] = widget
+
+    hbox = glooey.HBox()
+    widget = glooey.Button(text='yes')
+    widget.push_handlers(on_click=lambda w: print(f'[{w.text}] clicked!'))
+    hbox.add(widget)
+    widget = glooey.Button(text='no')
+    widget.push_handlers(on_click=lambda w: print(f'[{w.text}] clicked!'))
+    hbox.add(widget)
+    grid[1, 1] = hbox
+
+    gui.add(grid)
 
     pyglet.app.run()
 
