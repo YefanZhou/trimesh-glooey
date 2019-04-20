@@ -203,8 +203,8 @@ class MeshWidget(glooey.Widget):
             self.view['ball'].down([x, y])
 
         # left mouse button, with control key down (pan)
-        if ((buttons == pyglet.window.mouse.LEFT) and
-                (modifiers & pyglet.window.key.MOD_CTRL)):
+        if (buttons == pyglet.window.mouse.LEFT) and \
+                (modifiers & pyglet.window.key.MOD_CTRL):
             delta = [dx / self.rect.width, dy / self.rect.height]
             self.view['translation'][:2] += delta
         # left mouse button, no modifier keys pressed (rotate)
