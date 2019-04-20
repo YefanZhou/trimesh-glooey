@@ -308,7 +308,7 @@ def create_scene1():
 def create_scene2():
     scene = trimesh.Scene()
     for _ in range(5):
-        geom = trimesh.load('/home/wkentaro/Documents/trimesh/models/fuze.obj')
+        geom = trimesh.load('models/fuze.obj')
         R = tf.random_rotation_matrix()
         T = tf.translation_matrix(np.random.uniform(-0.3, 0.3, (3,)))
         scene.add_geometry(geom, transform=T @ R)
