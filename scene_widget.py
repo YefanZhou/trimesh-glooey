@@ -1,6 +1,7 @@
 import glooey
 import numpy as np
 import pyglet
+from pyrender.trackball import Trackball
 import trimesh
 import trimesh.transformations as tf
 
@@ -164,11 +165,18 @@ class SceneWidget(glooey.Widget):
         self.scene_group = None
         self.vertex_list = {}  # key: geometry_name, value: vertex_list
         self.textures = {}     # key: geometry_name, value: vertex_list
+        self.__trackball = None
 
-        self.view = {'translation': np.zeros(3),
-                     'center': self.scene.centroid,
-                     'scale': self.scene.scale,
-                     'ball': tf.Arcball()}
+    @property
+    def _trackball(self):
+        if self.__trackball is None:
+            self.__trackball = Trackball(
+                np.eye(4),
+                (self.rect.width, self.rect.height),
+                self.scene.scale,
+                self.scene.centroid,
+            )
+        return self.__trackball
 
     def do_claim(self):
         return 0, 0
@@ -181,7 +189,7 @@ class SceneWidget(glooey.Widget):
             rect=self.rect,
             camera_fovy=self.scene.camera.fov[1],
             camera_transform=np.linalg.inv(self.scene.camera.transform),
-            view_transform=view_to_transform(self.view),
+            view_transform=self._trackball.pose.copy(),
             parent=self.group,
         )
         for geometry_name, vertex_list in self.vertex_list.items():
@@ -207,7 +215,7 @@ class SceneWidget(glooey.Widget):
             rect=self.rect,
             camera_fovy=self.scene.camera.fov[1],
             camera_transform=np.linalg.inv(self.scene.camera.transform),
-            view_transform=view_to_transform(self.view),
+            view_transform=self._trackball.pose.copy(),
             parent=self.group,
         )
 
@@ -242,9 +250,24 @@ class SceneWidget(glooey.Widget):
         self.textures = {}
 
     def on_mouse_press(self, x, y, buttons, modifiers):
-        self.view['ball'].down([x, -y])
+        self._trackball.set_state(Trackball.STATE_ROTATE)
+        if (buttons == pyglet.window.mouse.LEFT):
+            ctrl = (modifiers & pyglet.window.key.MOD_CTRL)
+            shift = (modifiers & pyglet.window.key.MOD_SHIFT)
+            if (ctrl and shift):
+                self._trackball.set_state(Trackball.STATE_ZOOM)
+            elif ctrl:
+                self._trackball.set_state(Trackball.STATE_ROLL)
+            elif shift:
+                self._trackball.set_state(Trackball.STATE_PAN)
+        elif (buttons == pyglet.window.mouse.MIDDLE):
+            self._trackball.set_state(Trackball.STATE_PAN)
+        elif (buttons == pyglet.window.mouse.RIGHT):
+            self._trackball.set_state(Trackball.STATE_ZOOM)
+
+        self._trackball.down(np.array([x, y]))
         if self.scene_group:
-            self.scene_group.view_transform = view_to_transform(self.view)
+            self.scene_group.view_transform = self._trackball.pose.copy()
         self._draw()
 
     def on_mouse_drag(self, x, y, dx, dy, buttons, modifiers):
@@ -255,33 +278,21 @@ class SceneWidget(glooey.Widget):
         width, height = self.rect.width, self.rect.height
         if not (left <= x_prev <= left + width) or \
                 not (bottom <= y_prev <= bottom + height):
-            self.view['ball'].down([x, y])
+            self._trackball.down(np.array([x, y]))
 
-        # left mouse button, with control key down (pan)
-        if ((buttons == pyglet.window.mouse.LEFT) and
-                (modifiers & pyglet.window.key.MOD_CTRL)):
-            delta = [dx / self.rect.width, dy / self.rect.height]
-            self.view['translation'][:2] += delta
-        # left mouse button, no modifier keys pressed (rotate)
-        elif (buttons == pyglet.window.mouse.LEFT):
-            self.view['ball'].drag([x, -y])
+        self._trackball.drag(np.array([x, y]))
         if self.scene_group:
-            self.scene_group.view_transform = view_to_transform(self.view)
+            self.scene_group.view_transform = self._trackball.pose.copy()
         self._draw()
 
     def on_mouse_scroll(self, x, y, dx, dy):
-        self.view['translation'][2] += float(dy) / self.rect.height * 5.0
+        self._trackball.scroll(dy)
         if self.scene_group:
-            self.scene_group.view_transform = view_to_transform(self.view)
+            self.scene_group.view_transform = self._trackball.pose.copy()
         self._draw()
 
 
-def view_to_transform(view):
-    transform = view['ball'].matrix()
-    transform[:3, 3] = view['center']
-    transform[:3, 3] -= np.dot(transform[:3, :3], view['center'])
-    transform[:3, 3] += view['translation'] * view['scale']
-    return transform
+# -----------------------------------------------------------------------------
 
 
 def create_scene1():
@@ -296,10 +307,10 @@ def create_scene1():
 
 def create_scene2():
     scene = trimesh.Scene()
-    for _ in range(20):
+    for _ in range(5):
         geom = trimesh.load('/home/wkentaro/Documents/trimesh/models/fuze.obj')
         R = tf.random_rotation_matrix()
-        T = tf.translation_matrix(np.random.uniform(-1, 1, (3,)))
+        T = tf.translation_matrix(np.random.uniform(-0.3, 0.3, (3,)))
         scene.add_geometry(geom, transform=T @ R)
     return scene
 
