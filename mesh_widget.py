@@ -35,6 +35,8 @@ class SceneGroup(pyglet.graphics.Group):
         gluPerspective(60, width / height, 0.01, 1000.0)
         glMatrixMode(GL_MODELVIEW)
 
+        glClearColor(*[.99, .99, .99, 1.0])
+
         self._enable_depth()
         self._enable_color_material()
         self._enable_blending()
@@ -43,6 +45,8 @@ class SceneGroup(pyglet.graphics.Group):
         self._clear_buffers()
 
     def unset_state(self):
+        glClearColor(*[0, 0, 0, 0])
+
         glMatrixMode(GL_PROJECTION)
         glPopMatrix()
         glMatrixMode(self._mode.value)
