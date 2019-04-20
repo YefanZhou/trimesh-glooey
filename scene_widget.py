@@ -9,9 +9,25 @@ from pyglet.gl import *  # NOQA
 
 class SceneGroup(pyglet.graphics.Group):
 
-    def __init__(self, rect, view_transform=None, parent=None):
+    def __init__(
+        self,
+        rect,
+        camera_fovy=60,
+        camera_transform=None,
+        view_transform=None,
+        parent=None,
+    ):
         super().__init__(parent)
         self.rect = rect
+
+        self.camera_fovy = camera_fovy
+
+        # transform from world coords to camera coords
+        if camera_transform is None:
+            camera_transform = np.eye(4)
+        self.camera_transform = camera_transform
+
+        # transform from world coords to view coords
         if view_transform is None:
             view_transform = np.eye(4)
         self.view_transform = view_transform
@@ -37,7 +53,7 @@ class SceneGroup(pyglet.graphics.Group):
         glMatrixMode(GL_PROJECTION)
         glPushMatrix()
         glLoadIdentity()
-        gluPerspective(60, width / height, 0.01, 1000.0)
+        gluPerspective(self.camera_fovy, width / height, 0.01, 1000.0)
         glMatrixMode(GL_MODELVIEW)
 
         glClearColor(*[.99, .99, .99, 1.0])
@@ -51,6 +67,7 @@ class SceneGroup(pyglet.graphics.Group):
 
         glPushMatrix()
         glLoadIdentity()
+        glMultMatrixf(trimesh.rendering.matrix_to_gl(self.camera_transform))
         glMultMatrixf(trimesh.rendering.matrix_to_gl(self.view_transform))
 
     def unset_state(self):
@@ -144,9 +161,9 @@ class SceneWidget(glooey.Widget):
     def __init__(self, scene):
         super().__init__()
         self.scene = scene
-        self.vertex_list = None
-        self.texture = None
         self.scene_group = None
+        self.vertex_list = {}  # key: geometry_name, value: vertex_list
+        self.textures = {}     # key: geometry_name, value: vertex_list
 
         self.view = {'translation': np.zeros(3),
                      'center': self.scene.centroid,
@@ -157,19 +174,24 @@ class SceneWidget(glooey.Widget):
         return 0, 0
 
     def do_regroup(self):
-        if self.vertex_list is not None:
-            self.scene_group = SceneGroup(
-                rect=self.rect,
-                view_transform=view_to_transform(self.view),
-                parent=self.group,
-            )
+        if not self.vertex_list:
+            return
+
+        self.scene_group = SceneGroup(
+            rect=self.rect,
+            camera_fovy=self.scene.camera.fov[1],
+            camera_transform=np.linalg.inv(self.scene.camera.transform),
+            view_transform=view_to_transform(self.view),
+            parent=self.group,
+        )
+        for geometry_name, vertex_list in self.vertex_list.items():
             mesh_group = MeshGroup(
                 transform=transform,
-                texture=self.texture,
+                texture=self.textures.get(geometry_name),
                 parent=self.scene_group,
             )
             self.batch.migrate(
-                self.vertex_list,
+                vertex_list,
                 GL_TRIANGLES,
                 mesh_group,
                 self.batch,
@@ -178,38 +200,46 @@ class SceneWidget(glooey.Widget):
     def do_draw(self):
         # Because the vertex list can't change, we don't need to do anything if
         # the vertex list is already set.
-        if self.vertex_list is None:
-            node_names = self.scene.graph.nodes_geometry
-            assert len(node_names) == 1
-            transform, geometry_name = self.scene.graph[node_names[0]]
+        if self.vertex_list:
+            return
+
+        self.scene_group = SceneGroup(
+            rect=self.rect,
+            camera_fovy=self.scene.camera.fov[1],
+            camera_transform=np.linalg.inv(self.scene.camera.transform),
+            view_transform=view_to_transform(self.view),
+            parent=self.group,
+        )
+
+        node_names = self.scene.graph.nodes_geometry
+        for node_name in node_names:
+            transform, geometry_name = self.scene.graph[node_name]
             geometry = self.scene.geometry[geometry_name]
             assert isinstance(geometry, trimesh.Trimesh)
 
             if hasattr(geometry, 'visual') and \
                     hasattr(geometry.visual, 'material'):
-                self.texture = trimesh.rendering.material_to_texture(
-                    geometry.visual.material
-                )
+                self.textures[geometry_name] = \
+                    trimesh.rendering.material_to_texture(
+                        geometry.visual.material)
 
-            self.scene_group = SceneGroup(
-                rect=self.rect,
-                view_transform=view_to_transform(self.view),
-                parent=self.group,
-            )
             mesh_group = MeshGroup(
                 transform=transform,
-                texture=self.texture,
+                texture=self.textures.get(geometry_name),
                 parent=self.scene_group,
             )
             args = trimesh.rendering.mesh_to_vertexlist(
                 geometry, group=mesh_group
             )
-            self.vertex_list = self.batch.add_indexed(*args)
+            self.vertex_list[geometry_name] = self.batch.add_indexed(*args)
 
     def do_undraw(self):
-        if self.vertex_list is not None:
-            self.vertex_list.delete()
-            self.vertex_list = None
+        if not self.vertex_list:
+            return
+        for vertex_list in self.vertex_list.values():
+            vertex_list.delete()
+        self.vertex_list = {}
+        self.textures = {}
 
     def on_mouse_press(self, x, y, buttons, modifiers):
         self.view['ball'].down([x, -y])
@@ -254,6 +284,26 @@ def view_to_transform(view):
     return transform
 
 
+def create_scene1():
+    scene = trimesh.Scene()
+    for _ in range(20):
+        geom = trimesh.creation.axis(0.02)
+        R = tf.random_rotation_matrix()
+        T = tf.translation_matrix(np.random.uniform(-1, 1, (3,)))
+        scene.add_geometry(geom, transform=T @ R)
+    return scene
+
+
+def create_scene2():
+    scene = trimesh.Scene()
+    for _ in range(20):
+        geom = trimesh.load('/home/wkentaro/Documents/trimesh/models/fuze.obj')
+        R = tf.random_rotation_matrix()
+        T = tf.translation_matrix(np.random.uniform(-1, 1, (3,)))
+        scene.add_geometry(geom, transform=T @ R)
+    return scene
+
+
 def main():
     np.random.seed(0)
 
@@ -262,21 +312,16 @@ def main():
 
     hbox = glooey.HBox()
 
-    t = tf.translation_matrix([0, 0, -0.5])
+    scene = create_scene1()
+    widget = SceneWidget(scene)
+    hbox.add(widget)
 
-    mesh = trimesh.load('/home/wkentaro/Documents/trimesh/models/fuze.obj')
-    # mesh = trimesh.creation.axis(0.03)
-    mesh.apply_transform(t @ tf.random_rotation_matrix())
-    hbox.add(SceneWidget(mesh.scene()))
+    widget = glooey.Placeholder(min_width=5, min_height=480, color=(0, 0, 0))
+    hbox.add(widget, size=0)
 
-    hbox.add(
-        glooey.Placeholder(min_width=5, min_height=480, color=(0, 0, 0)),
-        size=0
-    )
-
-    mesh = trimesh.creation.axis(0.02)
-    mesh.apply_transform(t @ tf.random_rotation_matrix())
-    hbox.add(SceneWidget(mesh.scene()))
+    scene = create_scene2()
+    widget = SceneWidget(scene)
+    hbox.add(widget)
 
     gui.add(hbox)
 
