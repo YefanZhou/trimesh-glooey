@@ -1,4 +1,5 @@
 glooey
 pillow
 pyglet
+pyrender
 trimesh
