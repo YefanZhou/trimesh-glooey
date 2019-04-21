@@ -17,6 +17,7 @@ class SceneGroup(pyglet.graphics.Group):
         camera_transform=None,
         view_transform=None,
         parent=None,
+        pixel_per_point=(1, 1),
     ):
         super().__init__(parent)
         self.rect = rect
@@ -33,23 +34,28 @@ class SceneGroup(pyglet.graphics.Group):
             view_transform = np.eye(4)
         self.view_transform = view_transform
 
+        self._pixel_per_point = pixel_per_point
+
     def set_state(self):
+        left = int(self.rect.left)
+        bottom = int(self.rect.bottom)
+        width = int(self.rect.width)
+        height = int(self.rect.height)
+
+        left = int(self._pixel_per_point[0] * left)
+        bottom = int(self._pixel_per_point[1] * bottom)
+        width = int(self._pixel_per_point[0] * width)
+        height = int(self._pixel_per_point[1] * height)
+
         glPushAttrib(GL_ENABLE_BIT)
         glEnable(GL_SCISSOR_TEST)
-        glScissor(
-            int(self.rect.left),
-            int(self.rect.bottom),
-            int(self.rect.width),
-            int(self.rect.height),
-        )
+        glScissor(left, bottom, width, height)
 
         self._mode = (GLint)()
         glGetIntegerv(GL_MATRIX_MODE, self._mode)
         self._viewport = (GLint * 4)()
         glGetIntegerv(GL_VIEWPORT, self._viewport)
 
-        left, bottom = int(self.rect.left), int(self.rect.bottom)
-        width, height = int(self.rect.width), int(self.rect.height)
         glViewport(left, bottom, width, height)
         glMatrixMode(GL_PROJECTION)
         glPushMatrix()
@@ -211,12 +217,15 @@ class SceneWidget(glooey.Widget):
         if self.vertex_list:
             return
 
+        pixel_per_point = np.array(self.window.get_viewport_size()) / \
+            np.array(self.window.get_size()),
         self.scene_group = SceneGroup(
             rect=self.rect,
             camera_fovy=self.scene.camera.fov[1],
             camera_transform=np.linalg.inv(self.scene.camera.transform),
             view_transform=self._trackball.pose.copy(),
             parent=self.group,
+            pixel_per_point=pixel_per_point,
         )
 
         node_names = self.scene.graph.nodes_geometry
